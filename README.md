@@ -1,2 +1,0 @@
-# TestWeteroRussia
-Nelzya tebe syda!
