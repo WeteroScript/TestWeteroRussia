@@ -3,14 +3,9 @@ import asyncio
 import sys
 from config import bot, dp, logger, ADMIN_IDS
 from database.file_manager import load_settings
-from services.tasks import promo_auto_loop, check_business_loop
-from services.auction import auction_update_loop, auction_running, update_auction_lots
+from services.tasks import promo_auto_loop, check_business_loop, promo_running, promo_task, business_running, business_check_task
+from services.auction import auction_update_loop, update_auction_lots, auction_running
 from core.handlers import register_handlers
-
-promo_running = False
-promo_task = None
-business_running = False
-business_check_task = None
 
 async def main():
     global promo_running, promo_task, business_running, business_check_task, auction_running
