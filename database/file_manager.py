@@ -2,6 +2,7 @@ import json
 import os
 import asyncio
 from datetime import datetime
+from typing import Dict, List, Optional  # 👈 ДОБАВЛЕНО
 from config import (
     USERS_FILE, PROMOCODES_FILE, INVENTORY_FILE, 
     SETTINGS_FILE, BUSINESS_FILE,
@@ -11,8 +12,8 @@ from config import (
 # ========== ДЕФОЛТНЫЙ ПОЛЬЗОВАТЕЛЬ ==========
 def get_default_user():
     return {
-        "money": 100000000000,
-        "brcoins": 100000,
+        "money": 1000000,
+        "brcoins": 1000,
         "energy": 100,
         "total_earned": 0,
         "trades_count": 0,
@@ -206,3 +207,10 @@ async def get_active_lots() -> List[Dict]:
         if lot.get("is_active", True) and not lot.get("sold", False)
     ]
     return active_lots
+
+async def get_lot_by_index(index: int) -> Optional[Dict]:
+    """Возвращает лот по индексу"""
+    lots = await get_active_lots()
+    if 0 <= index < len(lots):
+        return lots[index]
+    return None
