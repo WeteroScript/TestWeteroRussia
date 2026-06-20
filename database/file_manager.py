@@ -2,7 +2,7 @@ import json
 import os
 import asyncio
 from datetime import datetime
-from typing import Dict, List, Optional  # 👈 ДОБАВЛЕНО
+from typing import Dict, List, Optional
 from config import (
     USERS_FILE, PROMOCODES_FILE, INVENTORY_FILE, 
     SETTINGS_FILE, BUSINESS_FILE,
@@ -176,7 +176,7 @@ async def save_disabled_functions(disabled):
         except Exception as e:
             logger.error(f"Ошибка при сохранении disabled_functions: {e}")
 
-# ========== AUCTION (НОВОЕ) ==========
+# ========== AUCTION ==========
 async def load_auction_data() -> Dict:
     """Загружает данные аукциона из файла"""
     async with file_locks['auction']:
@@ -214,3 +214,21 @@ async def get_lot_by_index(index: int) -> Optional[Dict]:
     if 0 <= index < len(lots):
         return lots[index]
     return None
+
+async def update_lot_status(lot_index: int, sold: bool = True):
+    """Обновляет статус лота"""
+    data = await load_auction_data()
+    lots = data.get("lots", [])
+    if 0 <= lot_index < len(lots):
+        lots[lot_index]["sold"] = sold
+        lots[lot_index]["is_active"] = not sold
+        await save_auction_data(data)
+        return True
+    return False
+
+async def set_auction_lots(lots: List[Dict]):
+    """Устанавливает список лотов (для админов)"""
+    data = await load_auction_data()
+    data["lots"] = lots
+    data["last_update"] = datetime.now().isoformat()
+    await save_auction_data(data)
