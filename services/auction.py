@@ -3,11 +3,9 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 from config import AUCTION_CARS, AUCTION_CONFIG, bot, logger
-from database.auction_manager import (
-    load_auction_data, save_auction_data, get_active_lots,
-    update_lot_status, set_auction_lots, get_lot_by_index
-)
 from database.file_manager import load_users, save_users
+from database.file_manager import load_auction_data, save_auction_data, get_active_lots, update_lot_status
+from utils.helpers import is_function_disabled
 
 # Глобальные переменные
 auction_running = False
@@ -54,7 +52,6 @@ def generate_auction_lots(count: int = 15) -> List[Dict]:
     attempts = 0
     while len(selected_cars) < count and attempts < 1000:
         attempts += 1
-        # Выбираем случайную машину с учётом веса
         total_weight = sum(chance for _, _, chance in available_cars)
         if total_weight == 0:
             break
@@ -77,9 +74,8 @@ def generate_auction_lots(count: int = 15) -> List[Dict]:
     # Создаём лоты
     for car_name, car_data in selected_cars[:count]:
         base_price = car_data.get("base_price", 1000000)
-        # Начальная ставка от 30% до 60% от базовой цены
-        start_bid = int(base_price * random.uniform(0.3, 0.6))
-        start_bid = max(start_bid, 100000)  # Минимум 100,000
+        start_bid = car_data.get("start_bid", int(base_price * random.uniform(0.3, 0.6)))
+        start_bid = max(start_bid, 100000)
         
         lots.append({
             "car_name": car_name,
@@ -155,6 +151,10 @@ async def auction_update_loop():
 
 async def place_bid(user_id: str, lot_index: int, amount: int) -> Tuple[bool, str]:
     """Размещает ставку на лот"""
+    # Проверяем, не отключена ли функция аукциона
+    if await is_function_disabled("menubutton_11"):
+        return False, "⛔ Аукцион временно остановлен администратором!"
+    
     lots = await get_active_lots()
     
     if lot_index < 0 or lot_index >= len(lots):
