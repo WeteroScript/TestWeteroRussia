@@ -1,7 +1,17 @@
-from aiogram import types
+import os
+import random
+import string
+import asyncio
+from datetime import datetime
+
+from aiogram import types, F
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import ADMIN_IDS, bot, logger, BUSINESS_CONFIG, AUCTION_CARS
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+
+from config import (
+    ADMIN_IDS, bot, logger, BUSINESS_CONFIG, AUCTION_CARS,
+    USERS_FILE, PROMOCODES_FILE, SETTINGS_FILE, BUSINESS_FILE, AUCTION_FILE
+)
 from database.file_manager import (
     load_users, save_users, load_business, save_business,
     load_settings, save_settings, load_promocodes, save_promocodes,
@@ -915,7 +925,7 @@ def register_admin_handlers(dp):
         try:
             await message.answer("📦 Собираю базу...")
             files_sent = 0
-            for file in [USERS_FILE, PROMOCODES_FILE, INVENTORY_FILE, SETTINGS_FILE, BUSINESS_FILE, AUCTION_FILE]:
+            for file in [USERS_FILE, PROMOCODES_FILE, SETTINGS_FILE, BUSINESS_FILE, AUCTION_FILE]:
                 if os.path.exists(file):
                     with open(file, 'r', encoding='utf-8') as f:
                         await message.answer_document(
