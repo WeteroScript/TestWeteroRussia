@@ -3,9 +3,8 @@ import asyncio
 import sys
 from config import bot, dp, logger, ADMIN_IDS
 from database.file_manager import load_settings
-from services.tasks import (
-    promo_auto_loop, check_business_loop
-)
+from services.tasks import promo_auto_loop, check_business_loop
+from services.auction import auction_update_loop, auction_running, update_auction_lots
 from core.handlers import register_handlers
 
 promo_running = False
@@ -14,7 +13,7 @@ business_running = False
 business_check_task = None
 
 async def main():
-    global promo_running, promo_task, business_running, business_check_task
+    global promo_running, promo_task, business_running, business_check_task, auction_running
     
     logger.info("🤖 Бот запущен!")
     logger.info(f"👑 Админы: {ADMIN_IDS}")
@@ -22,18 +21,29 @@ async def main():
     register_handlers(dp)
     
     try:
+        # Запускаем бизнес-цикл
         business_running = True
         business_check_task = asyncio.create_task(check_business_loop())
         logger.info("🏢 Цикл проверки бизнесов запущен!")
         
-        settings = await load_settings()
+        # Запускаем цикл аукциона
+        auction_running = True
+        auction_task = asyncio.create_task(auction_update_loop())
+        logger.info("🚗 Цикл обновления аукциона запущен!")
         
+        # Инициализируем аукцион
+        await update_auction_lots()
+        logger.info("🚗 Аукцион инициализирован!")
+        
+        # Запускаем промокоды если включены
+        settings = await load_settings()
         if settings.get("promo_auto", False):
             promo_running = True
             promo_task = asyncio.create_task(promo_auto_loop())
             logger.info("📢 Авто-промокоды запущены!")
         
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        
     except KeyboardInterrupt:
         logger.info("🛑 Бот остановлен пользователем")
     except Exception as e:
