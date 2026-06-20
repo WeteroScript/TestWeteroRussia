@@ -94,7 +94,7 @@ BUSINESS_CONFIG = {
         ],
         "min_resources": 1,
         "max_resources": 3,
-        "cooldown": 600
+        "cooldown": 5
     },
     "tech_center": {
         "name": "Технический центр",
