@@ -36,6 +36,7 @@ INVENTORY_FILE = os.path.join(DATA_DIR, 'inventory.json')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 BUSINESS_FILE = os.path.join(DATA_DIR, 'business.json')
 DISABLED_FUNCTIONS_FILE = os.path.join(DATA_DIR, 'disabled_functions.json')
+AUCTION_FILE = os.path.join(DATA_DIR, 'auction.json')
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -46,7 +47,8 @@ file_locks = {
     'inventory': asyncio.Lock(),
     'settings': asyncio.Lock(),
     'business': asyncio.Lock(),
-    'disabled_functions': asyncio.Lock()
+    'disabled_functions': asyncio.Lock(),
+    'auction': asyncio.Lock()
 }
 
 # ========== КОНСТАНТЫ ДЛЯ ШАХТЫ ==========
@@ -136,7 +138,7 @@ BUSINESS_CONFIG = {
     }
 }
 
-# ========== МАШИНЫ ДЛЯ АУКЦИОНА (ОСТАВЛЕНЫ, НО АУКЦИОН УДАЛЁН) ==========
+# ========== МАШИНЫ ДЛЯ АУКЦИОНА ==========
 AUCTION_CARS = {
     # ★★★★★ (Экзотические, шанс 0.5%)
     "Монстр трак": {"stars": 5, "rarity": "Экзотическая", "base_price": 1000000000, "chance": 0.005},
@@ -257,6 +259,14 @@ AUCTION_CARS = {
     "Fiat Uno Turbo i.e.": {"stars": 1, "rarity": "Доступная", "base_price": 4500000, "chance": 0.50}
 }
 
+# ========== НАСТРОЙКИ АУКЦИОНА ==========
+AUCTION_CONFIG = {
+    "max_lots": 15,
+    "update_interval": 1800,  # 30 минут
+    "bid_timeout": 900,  # 15 минут
+    "default_start_bid": 1000000
+}
+
 # ========== ID ДЛЯ ФУНКЦИЙ ==========
 FUNCTION_IDS = {
     # Работы
@@ -276,6 +286,7 @@ FUNCTION_IDS = {
     "menubutton_8": "Казино",
     "menubutton_9": "Статистика",
     "menubutton_10": "Техподдержка",
+    "menubutton_11": "Аукцион",  # НОВОЕ
     
     # Казино
     "casinogame_1": "Кубик",
