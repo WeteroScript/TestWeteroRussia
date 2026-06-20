@@ -1,9 +1,12 @@
-from aiogram import types
+import random
+from datetime import datetime
+
+from aiogram import types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram import F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+
 from config import bot, logger
 from database.file_manager import load_users, save_users
 from utils.helpers import check_access, get_default_user, check_subscription
@@ -98,8 +101,8 @@ def register_user_handlers(dp):
             return
         
         # НОВЫЕ ПАРАМЕТРЫ:
-        win_chance = 0.45  # 45% (было 50%)
-        multiplier = 1.3   # 1.3x (было 2.0)
+        win_chance = 0.45  # 45%
+        multiplier = 1.3   # 1.3x
         
         user_id = str(callback.from_user.id)
         users = await load_users()
