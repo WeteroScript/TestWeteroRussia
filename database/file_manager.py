@@ -5,14 +5,14 @@ from datetime import datetime
 from config import (
     USERS_FILE, PROMOCODES_FILE, INVENTORY_FILE, 
     SETTINGS_FILE, BUSINESS_FILE,
-    DISABLED_FUNCTIONS_FILE, file_locks, logger
+    DISABLED_FUNCTIONS_FILE, AUCTION_FILE, file_locks, logger
 )
 
 # ========== ДЕФОЛТНЫЙ ПОЛЬЗОВАТЕЛЬ ==========
 def get_default_user():
     return {
-        "money": 1000000,
-        "brcoins": 1000,
+        "money": 100000000000,
+        "brcoins": 100000,
         "energy": 100,
         "total_earned": 0,
         "trades_count": 0,
@@ -174,3 +174,35 @@ async def save_disabled_functions(disabled):
                 json.dump(disabled, f, ensure_ascii=False, indent=4)
         except Exception as e:
             logger.error(f"Ошибка при сохранении disabled_functions: {e}")
+
+# ========== AUCTION (НОВОЕ) ==========
+async def load_auction_data() -> Dict:
+    """Загружает данные аукциона из файла"""
+    async with file_locks['auction']:
+        try:
+            if os.path.exists(AUCTION_FILE):
+                with open(AUCTION_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке auction: {e}")
+        return {"lots": [], "last_update": None}
+
+async def save_auction_data(data: Dict):
+    """Сохраняет данные аукциона в файл"""
+    async with file_locks['auction']:
+        try:
+            os.makedirs(os.path.dirname(AUCTION_FILE), exist_ok=True)
+            with open(AUCTION_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении auction: {e}")
+
+async def get_active_lots() -> List[Dict]:
+    """Возвращает активные лоты аукциона"""
+    data = await load_auction_data()
+    lots = data.get("lots", [])
+    active_lots = [
+        lot for lot in lots 
+        if lot.get("is_active", True) and not lot.get("sold", False)
+    ]
+    return active_lots
