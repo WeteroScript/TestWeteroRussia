@@ -5,6 +5,8 @@ from config import ADMIN_IDS, CHANNEL_ID, logger, bot, file_locks
 from database.file_manager import load_users, load_settings, save_settings, load_disabled_functions
 
 async def is_admin(user_id):
+    """Проверяет, является ли пользователь админом"""
+    user_id = int(user_id)
     return user_id in ADMIN_IDS
 
 async def is_bot_enabled():
