@@ -23,7 +23,12 @@ from database.file_manager import set_auction_lots
 from utils.helpers import is_admin
 from services.currency import currency_rates
 from services.tasks import promo_running, promo_task, promo_auto_loop
-from services.auction import set_admin_auction_lots, refresh_auction_for_all, update_auction_lots
+from services.auction import (
+    set_admin_auction_lots_with_slot, 
+    refresh_auction_for_all, 
+    update_auction_lots,
+    user_auction_page
+)
 
 def register_admin_handlers(dp):
     
@@ -214,14 +219,15 @@ def register_admin_handlers(dp):
                 await message.answer(f"❌ Пользователь @{username} не найден!")
                 return
             
+            # Используем HTML вместо Markdown для безопасности
             text = (
-                f"👤 **ПРОФИЛЬ @{username}**\n\n"
+                f"<b>👤 ПРОФИЛЬ @{username}</b>\n\n"
                 f"💰 Баланс: {found_user['money']:,.0f}₽\n"
                 f"💎 BRcoins: {found_user['brcoins']}\n"
                 f"📈 Заработано: {found_user['total_earned']:,.0f}₽\n"
                 f"🤝 Сделок: {found_user['trades_count']}\n"
                 f"⛔ Забанен: {'Да' if found_user.get('banned', False) else 'Нет'}\n\n"
-                f"**📊 Портфель:**\n"
+                f"<b>📊 Портфель:</b>\n"
                 f"₿ BTC: {found_user['portfolio'].get('BTC', 0)}\n"
                 f"💧 WETcoin: {found_user['portfolio'].get('WETcoin', 0)}\n"
                 f"🪙 NotCoin: {found_user['portfolio'].get('NotCoin', 0)}\n\n"
@@ -238,7 +244,7 @@ def register_admin_handlers(dp):
                 [InlineKeyboardButton(text="🔙 Назад", callback_data="back_main")]
             ]
             
-            await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+            await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="HTML")
             
         except Exception as e:
             logger.error(f"Ошибка в getplayeracc: {e}")
@@ -1049,59 +1055,3 @@ def register_admin_handlers(dp):
             await message.answer(f"❌ Ошибка: {e}")
 
     logger.info("✅ Все админ-обработчики зарегистрированы!")
-
-
-# ==========================================
-# ===== НОВАЯ ФУНКЦИЯ ДЛЯ УСТАНОВКИ В СЛОТ =====
-# ==========================================
-
-async def set_admin_auction_lots_with_slot(car_name: str, start_bid: int, count: int, slot: int):
-    """Устанавливает лоты от админа в конкретный слот"""
-    if car_name not in AUCTION_CARS:
-        return False, f"❌ Машина '{car_name}' не найдена!"
-    
-    car_data = AUCTION_CARS[car_name]
-    
-    # Создаем лоты
-    new_lots = []
-    for _ in range(count):
-        new_lots.append({
-            "car_name": car_name,
-            "car_data": car_data,
-            "start_bid": start_bid,
-            "current_bid": start_bid,
-            "current_bidder": None,
-            "stars": car_data.get("stars", 1),
-            "rarity": car_data.get("rarity", "Доступная"),
-            "last_bid_time": datetime.now().isoformat(),
-            "is_active": True,
-            "sold": False,
-            "added_by_admin": True
-        })
-    
-    # Загружаем текущие данные
-    data = await load_auction_data()
-    lots = data.get("lots", [])
-    
-    # Удаляем старые проданные лоты
-    lots = [lot for lot in lots if not lot.get("sold", False)]
-    
-    # Вставляем в конкретный слот (индекс = slot - 1)
-    slot_index = slot - 1
-    
-    # Если слот занят - заменяем, если нет - вставляем
-    if slot_index < len(lots):
-        # Заменяем существующий лот
-        lots[slot_index:slot_index + len(new_lots)] = new_lots
-    else:
-        # Добавляем в конец
-        lots.extend(new_lots)
-    
-    # Обрезаем до максимума
-    lots = lots[:AUCTION_CONFIG["max_lots"]]
-    
-    data["lots"] = lots
-    data["last_update"] = datetime.now().isoformat()
-    await save_auction_data(data)
-    
-    return True, f"✅ Добавлено {count} шт. {car_name} на аукцион в слот {slot}! Стартовая ставка: {start_bid:,}₽"
