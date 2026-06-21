@@ -43,6 +43,9 @@ from config import (
     AUCTION_CARS, FUNCTION_IDS, USERS_FILE, PROMOCODES_FILE,
     INVENTORY_FILE, SETTINGS_FILE, BUSINESS_FILE, AUCTION_FILE
 )
+from handlers.admin import register_admin_handlers
+from handlers.business import register_business_handlers
+from handlers.user import register_user_handlers
 
 # ========== СОСТОЯНИЯ ==========
 class TradeStates(StatesGroup):
