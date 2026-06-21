@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from config import bot, logger
-from database.file_manager import load_users, save_users
+from database.file_manager import load_users, save_users, load_promocodes, save_promocodes
 from utils.helpers import check_access, get_default_user, check_subscription
 from services.currency import currency_rates
 
@@ -94,88 +94,64 @@ def register_user_handlers(dp):
         
         await callback.answer()
 
-    # ========== ИГРА "КУБИК" (НОВЫЕ КОЭФФИЦИЕНТЫ) ==========
-    @dp.callback_query(F.data == "dice_game")
-    async def dice_game(callback: types.CallbackQuery):
-        if not await check_access(callback):
-            return
-        
-        # НОВЫЕ ПАРАМЕТРЫ:
-        win_chance = 0.45  # 45%
-        multiplier = 1.3   # 1.3x
-        
-        user_id = str(callback.from_user.id)
-        users = await load_users()
-        user = users.get(user_id, get_default_user())
-        
-        bet = user.get("casino", {}).get("bet", 0)
-        if bet <= 0:
-            await callback.answer("💰 Сначала сделайте ставку через /bet", show_alert=True)
-            return
-        
-        if user["money"] < bet:
-            await callback.answer("❌ Недостаточно средств!", show_alert=True)
-            return
-        
-        # Расчет выигрыша
-        is_win = random.random() < win_chance
-        
-        if is_win:
-            win_amount = int(bet * multiplier)
-            user["money"] += win_amount
-            result_text = f"🎉 Вы выиграли {win_amount:,}₽ (коэффициент {multiplier}x)!"
-        else:
-            user["money"] -= bet
-            result_text = f"😔 Вы проиграли {bet:,}₽"
-        
-        await save_users(users)
-        
-        await callback.message.edit_text(
-            f"{result_text}\n\n"
-            f"💰 Баланс: {user['money']:,}₽\n"
-            f"🎲 Шанс выигрыша: {win_chance*100:.0f}%",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="🎲 Ещё раз", callback_data="dice_game")],
-                    [InlineKeyboardButton(text="🔙 Назад", callback_data="casino")]
-                ]
-            )
-        )
-        await callback.answer()
+    # ==========================================
+    # ===== ПРОМОКОДЫ (ИСПРАВЛЕНО) =====
+    # ==========================================
 
-    # ========== ИГРА "МИНЫ" (НОВЫЕ КОЭФФИЦИЕНТЫ) ==========
-    @dp.callback_query(F.data == "mines_game")
-    async def mines_game(callback: types.CallbackQuery):
-        if not await check_access(callback):
+    @dp.message(F.text, ~F.text.startswith('/'))
+    async def handle_promo(message: types.Message, state: FSMContext):
+        """Обработка промокодов"""
+        # Проверяем, что мы не в другом состоянии
+        current_state = await state.get_state()
+        if current_state is not None:
             return
         
-        # НОВЫЕ КОЭФФИЦИЕНТЫ для мин:
-        multipliers = {
-            1: 0.8,
-            2: 1.0,
-            3: 1.1,
-            4: 1.25,
-            5: 1.35,
-            6: 1.50
-        }
-        # для 7+ добавляем по 0.15
-        def get_multiplier(cells):
-            if cells <= 6:
-                return multipliers.get(cells, 1.0)
-            return 1.50 + (cells - 6) * 0.15
-        
-        user_id = str(callback.from_user.id)
-        users = await load_users()
-        user = users.get(user_id, get_default_user())
-        
-        bet = user.get("casino", {}).get("bet", 0)
-        if bet <= 0:
-            await callback.answer("💰 Сначала сделайте ставку через /bet", show_alert=True)
+        if not await check_access(message):
             return
         
-        # Здесь должна быть логика игры "Мины" с использованием get_multiplier()
-        # Например, при открытии N клеток:
-        # cells_opened = 3
-        # multiplier = get_multiplier(cells_opened)
-        
-        await callback.answer("🔄 Логика мин с новыми коэффициентами готова, доработайте UI", show_alert=True)
+        try:
+            user_id = str(message.from_user.id)
+            users = await load_users()
+            user = users.get(user_id)
+            
+            if not user:
+                return
+            
+            # Проверяем, что это похоже на промокод (короткое сообщение из букв/цифр)
+            text = message.text.strip()
+            if len(text) > 20 or not text.isalnum():
+                return
+            
+            promocodes = await load_promocodes()
+            code = text.upper()
+            
+            if code in promocodes:
+                promo = promocodes[code]
+                if promo["used"] >= promo["uses"]:
+                    await message.answer("❌ Промокод уже использован!")
+                    return
+                
+                if promo["type"] == "brcoins":
+                    user["brcoins"] += promo["amount"]
+                    user["donate_received"] += promo["amount"]
+                    currency_name = "BRcoins"
+                else:
+                    user["money"] += promo["amount"]
+                    user["total_earned"] += promo["amount"]
+                    currency_name = "₽"
+                
+                promo["used"] += 1
+                users[user_id] = user
+                
+                await save_promocodes(promocodes)
+                await save_users(users)
+                
+                await message.answer(
+                    f"✅ Промокод активирован!\n"
+                    f"💰 +{promo['amount']:,} {currency_name}"
+                )
+            else:
+                # Не показываем ошибку для обычных сообщений
+                pass
+        except Exception as e:
+            logger.error(f"Ошибка в handle_promo: {e}")
