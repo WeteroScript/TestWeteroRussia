@@ -220,7 +220,7 @@ AUCTION_CARS = {
 AUCTION_CONFIG = {
     "max_lots": 15,
     "update_interval": 1800,  # 30 минут
-    "bid_timeout": 900,  # 15 минут
+    "bid_timeout": 10,  # 15 минут
     "default_start_bid": 1000000
 }
 
