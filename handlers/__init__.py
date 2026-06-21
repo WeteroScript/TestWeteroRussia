@@ -1,6 +1,3 @@
-# handlers/__init__.py
-
-# Убираем импорт из .handlers, так как его нет в папке handlers
 from .admin import register_admin_handlers
 from .business import register_business_handlers
 from .user import register_user_handlers
