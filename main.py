@@ -5,7 +5,9 @@ from config import bot, dp, logger, ADMIN_IDS
 from database.file_manager import load_settings
 from services.tasks import promo_auto_loop, check_business_loop, promo_running, promo_task, business_running, business_check_task
 from services.auction import auction_update_loop, update_auction_lots, auction_running
-from handlers import register_admin_handlers, register_business_handlers, register_user_handlers
+from handlers.admin import register_admin_handlers
+from handlers.business import register_business_handlers
+from handlers.user import register_user_handlers
 
 async def main():
     global promo_running, promo_task, business_running, business_check_task, auction_running
@@ -13,10 +15,10 @@ async def main():
     logger.info("🤖 Бот запущен!")
     logger.info(f"👑 Админы: {ADMIN_IDS}")
     
-    # Регистрируем обработчики
+    # Регистрируем все обработчики
+    register_user_handlers(dp)
     register_admin_handlers(dp)
     register_business_handlers(dp)
-    register_user_handlers(dp)
     
     try:
         # Запускаем бизнес-цикл
