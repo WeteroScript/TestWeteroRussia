@@ -27,8 +27,10 @@ from services.auction import (
     set_admin_auction_lots_with_slot, 
     refresh_auction_for_all, 
     update_auction_lots,
-    user_auction_page
+    user_auction_page,
+    frozen_bids
 )
+
 
 def register_admin_handlers(dp):
     
@@ -42,7 +44,9 @@ def register_admin_handlers(dp):
             "👑 **Админ-команды:**\n\n"
             "**👤 Игроки:**\n"
             "`/getplayeracc @username` - меню игрока\n"
-            "`/givecar @username кол-во id_машины` - выдача машины\n\n"
+            "`/givecar @username кол-во id_машины` - выдача машины\n"
+            "`/ban @username (причина)` - заблокировать игрока\n"
+            "`/unban @username (причина)` - разблокировать игрока\n\n"
             "**🏢 Бизнес:**\n"
             "`/resetbusiness @username (причина)` - сброс бизнеса\n"
             "`/resetallbusiness` - сброс всех бизнесов\n"
@@ -73,114 +77,191 @@ def register_admin_handlers(dp):
             "**🚗 Аукцион:**\n"
             "`/carlist` - список всех машин с ID\n"
             "`/setcarauction (id машины) (начальная ставка) (кол-во) (слот 1-15)` - добавить машину в слот\n"
-            "`/refreshauction` - обновить аукцион"
+            "`/refreshauction` - обновить аукцион\n"
+            "`/stopauctionlot (номер лота)` - остановить лот и вернуть деньги"
         )
         await message.answer(help_text, parse_mode="Markdown")
 
     # ==========================================
-    # ===== АДМИН-КОМАНДЫ ДЛЯ АУКЦИОНА =====
+    # ===== НОВЫЕ КОМАНДЫ: BAN / UNBAN =====
     # ==========================================
     
-    @dp.message(Command("carlist"))
-    async def car_list(message: types.Message):
-        """Список всех машин с ID для админов"""
+    @dp.message(Command("ban"))
+    async def ban_user(message: types.Message):
         if not await is_admin(message.from_user.id):
             await message.answer("⛔ У вас нет прав!")
             return
         
+        parts = message.text.split(maxsplit=2)
+        if len(parts) < 2:
+            await message.answer("❌ Использование: /ban @username (причина)\n\nПример: /ban @user Нарушение правил")
+            return
+        
+        username = parts[1].replace("@", "").lower()
+        reason = parts[2] if len(parts) > 2 else "Без причины"
+        
         try:
-            text = "🚗 **СПИСОК ВСЕХ МАШИН:**\n\n"
-            car_list = list(AUCTION_CARS.keys())
+            users = await load_users()
+            found = False
+            found_id = None
             
-            for i, name in enumerate(car_list, 1):
-                data = AUCTION_CARS[name]
-                stars = "⭐" * data['stars'] + "☆" * (5 - data['stars'])
-                text += f"**{i}. {name}**\n"
-                text += f"   🆔 ID: `car_{i}`\n"
-                text += f"   {stars} ({data['rarity']})\n"
-                text += f"   💰 {data['base_price']:,.0f}₽\n\n"
+            for user_id, data in users.items():
+                try:
+                    user = await bot.get_chat(int(user_id))
+                    if user.username and user.username.lower() == username:
+                        found = True
+                        found_id = user_id
+                        break
+                except:
+                    continue
             
-            if len(text) > 4000:
-                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
-                for part in parts:
-                    await message.answer(part, parse_mode="Markdown")
-            else:
-                await message.answer(text, parse_mode="Markdown")
-                
+            if not found:
+                await message.answer(f"❌ Пользователь @{username} не найден!")
+                return
+            
+            users[found_id]["banned"] = True
+            await save_users(users)
+            
+            try:
+                await bot.send_message(
+                    int(found_id),
+                    f"🚫 Вас заблокировал администратор!\n\n📝 Причина: {reason}"
+                )
+            except:
+                pass
+            
+            await message.answer(f"✅ Пользователь @{username} заблокирован!\n📝 Причина: {reason}")
+            
         except Exception as e:
-            logger.error(f"Ошибка в carlist: {e}")
+            logger.error(f"Ошибка в ban_user: {e}")
             await message.answer(f"❌ Ошибка: {e}")
 
-    @dp.message(Command("setcarauction"))
-    async def set_car_auction(message: types.Message):
-        """Добавить машину на аукцион в конкретный слот"""
+    @dp.message(Command("unban"))
+    async def unban_user(message: types.Message):
         if not await is_admin(message.from_user.id):
             await message.answer("⛔ У вас нет прав!")
             return
         
-        parts = message.text.split(maxsplit=4)
-        if len(parts) < 5:
-            await message.answer(
-                "❌ Использование: /setcarauction (id машины) (начальная ставка) (кол-во) (слот 1-15)\n\n"
-                "Пример: /setcarauction \"Монстр трак\" 1000000 1 3\n"
-                "Для просмотра всех машин используйте /carlist\n"
-                "Слоты: 1-15 (если слот занят, машина заменит существующую)"
-            )
+        parts = message.text.split(maxsplit=2)
+        if len(parts) < 2:
+            await message.answer("❌ Использование: /unban @username (причина)\n\nПример: /unban @user Разблокирован")
+            return
+        
+        username = parts[1].replace("@", "").lower()
+        reason = parts[2] if len(parts) > 2 else "Без причины"
+        
+        try:
+            users = await load_users()
+            found = False
+            found_id = None
+            
+            for user_id, data in users.items():
+                try:
+                    user = await bot.get_chat(int(user_id))
+                    if user.username and user.username.lower() == username:
+                        found = True
+                        found_id = user_id
+                        break
+                except:
+                    continue
+            
+            if not found:
+                await message.answer(f"❌ Пользователь @{username} не найден!")
+                return
+            
+            users[found_id]["banned"] = False
+            await save_users(users)
+            
+            try:
+                await bot.send_message(
+                    int(found_id),
+                    f"✅ Вас разблокировал администратор!\n\n📝 Причина: {reason}"
+                )
+            except:
+                pass
+            
+            await message.answer(f"✅ Пользователь @{username} разблокирован!\n📝 Причина: {reason}")
+            
+        except Exception as e:
+            logger.error(f"Ошибка в unban_user: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
+
+    # ==========================================
+    # ===== НОВАЯ КОМАНДА: STOPAUCTIONLOT =====
+    # ==========================================
+    
+    @dp.message(Command("stopauctionlot"))
+    async def stop_auction_lot(message: types.Message):
+        if not await is_admin(message.from_user.id):
+            await message.answer("⛔ У вас нет прав!")
+            return
+        
+        parts = message.text.split()
+        if len(parts) < 2:
+            await message.answer("❌ Использование: /stopauctionlot (номер лота)\n\nПример: /stopauctionlot 3\nДля просмотра лотов используйте /carlist")
             return
         
         try:
-            car_name = parts[1].strip()
-            start_bid = int(parts[2])
-            count = int(parts[3])
-            slot = int(parts[4])
+            lot_num = int(parts[1]) - 1  # Переводим в 0-индексацию
             
-            if count <= 0 or start_bid <= 0:
-                await message.answer("❌ Количество и ставка должны быть положительными!")
+            data = await load_auction_data()
+            lots = data.get("lots", [])
+            
+            if lot_num < 0 or lot_num >= len(lots):
+                await message.answer(f"❌ Лот #{lot_num + 1} не найден! Всего лотов: {len(lots)}")
                 return
             
-            if slot < 1 or slot > AUCTION_CONFIG["max_lots"]:
-                await message.answer(f"❌ Слот должен быть от 1 до {AUCTION_CONFIG['max_lots']}!")
+            lot = lots[lot_num]
+            
+            if lot.get("sold", False) or not lot.get("is_active", True):
+                await message.answer(f"❌ Лот #{lot_num + 1} уже продан или неактивен!")
                 return
             
-            if car_name not in AUCTION_CARS:
-                found = None
-                for name in AUCTION_CARS.keys():
-                    if car_name.lower() in name.lower():
-                        found = name
-                        break
-                
-                if found:
-                    car_name = found
-                else:
+            # Проверяем, есть ли ставка на лоте
+            bidder = lot.get("current_bidder")
+            bid_amount = lot.get("current_bid", 0)
+            
+            # Возвращаем деньги если есть ставка
+            if bidder and bid_amount > 0:
+                users = await load_users()
+                if bidder in users:
+                    # Размораживаем средства
+                    frozen_bids[bidder] = max(0, frozen_bids.get(bidder, 0) - bid_amount)
+                    
+                    # Возвращаем деньги на баланс
+                    users[bidder]["money"] += bid_amount
+                    await save_users(users)
+                    
+                    # Уведомляем пользователя
+                    try:
+                        await bot.send_message(
+                            int(bidder),
+                            f"🔄 Администратор остановил лот #{lot_num + 1}!\n"
+                            f"🚗 {lot.get('car_name', 'Неизвестно')}\n"
+                            f"💰 Ваша ставка {bid_amount:,}₽ возвращена на баланс."
+                        )
+                    except Exception as e:
+                        logger.warning(f"Не удалось уведомить пользователя {bidder}: {e}")
+                    
                     await message.answer(
-                        f"❌ Машина '{car_name}' не найдена!\n"
-                        f"Используйте /carlist для просмотра всех машин"
+                        f"✅ Лот #{lot_num + 1} остановлен!\n"
+                        f"💰 Возвращено {bid_amount:,}₽ пользователю."
                     )
-                    return
+                else:
+                    await message.answer(f"⚠️ Пользователь не найден, но лот остановлен.")
+            else:
+                await message.answer(f"✅ Лот #{lot_num + 1} остановлен. Ставок не было.")
             
-            # Вызываем функцию с слотом
-            success, msg = await set_admin_auction_lots_with_slot(car_name, start_bid, count, slot)
-            await message.answer(msg)
+            # Деактивируем лот
+            lot["is_active"] = False
+            lot["sold"] = True
+            
+            await save_auction_data(data)
             
         except ValueError:
-            await message.answer("❌ Введите корректные числа для ставки, количества и слота!")
+            await message.answer("❌ Введите корректный номер лота!")
         except Exception as e:
-            logger.error(f"Ошибка в setcarauction: {e}")
-            await message.answer(f"❌ Ошибка: {e}")
-
-    @dp.message(Command("refreshauction"))
-    async def refresh_auction(message: types.Message):
-        """Обновить аукцион для всех пользователей"""
-        if not await is_admin(message.from_user.id):
-            await message.answer("⛔ У вас нет прав!")
-            return
-        
-        try:
-            await message.answer("🔄 Обновляю аукцион...")
-            success, msg = await refresh_auction_for_all()
-            await message.answer(msg)
-        except Exception as e:
-            logger.error(f"Ошибка в refreshauction: {e}")
+            logger.error(f"Ошибка в stop_auction_lot: {e}")
             await message.answer(f"❌ Ошибка: {e}")
 
     # ==========================================
@@ -1052,6 +1133,112 @@ def register_admin_handlers(dp):
             await message.answer("✅ Курсы обновлены!")
         except Exception as e:
             logger.error(f"Ошибка в update_rates_admin: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
+
+    # ==========================================
+    # ===== АУКЦИОН (ДОБАВЛЯЕМ ИМПОРТ) =====
+    # ==========================================
+    
+    @dp.message(Command("carlist"))
+    async def car_list(message: types.Message):
+        """Список всех машин с ID для админов"""
+        if not await is_admin(message.from_user.id):
+            await message.answer("⛔ У вас нет прав!")
+            return
+        
+        try:
+            text = "🚗 **СПИСОК ВСЕХ МАШИН:**\n\n"
+            car_list = list(AUCTION_CARS.keys())
+            
+            for i, name in enumerate(car_list, 1):
+                data = AUCTION_CARS[name]
+                stars = "⭐" * data['stars'] + "☆" * (5 - data['stars'])
+                text += f"**{i}. {name}**\n"
+                text += f"   🆔 ID: `car_{i}`\n"
+                text += f"   {stars} ({data['rarity']})\n"
+                text += f"   💰 {data['base_price']:,.0f}₽\n\n"
+            
+            if len(text) > 4000:
+                parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+                for part in parts:
+                    await message.answer(part, parse_mode="Markdown")
+            else:
+                await message.answer(text, parse_mode="Markdown")
+                
+        except Exception as e:
+            logger.error(f"Ошибка в carlist: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
+
+    @dp.message(Command("setcarauction"))
+    async def set_car_auction(message: types.Message):
+        """Добавить машину на аукцион в конкретный слот"""
+        if not await is_admin(message.from_user.id):
+            await message.answer("⛔ У вас нет прав!")
+            return
+        
+        parts = message.text.split(maxsplit=4)
+        if len(parts) < 5:
+            await message.answer(
+                "❌ Использование: /setcarauction (id машины) (начальная ставка) (кол-во) (слот 1-15)\n\n"
+                "Пример: /setcarauction \"Монстр трак\" 1000000 1 3\n"
+                "Для просмотра всех машин используйте /carlist\n"
+                "Слоты: 1-15 (если слот занят, машина заменит существующую)"
+            )
+            return
+        
+        try:
+            car_name = parts[1].strip()
+            start_bid = int(parts[2])
+            count = int(parts[3])
+            slot = int(parts[4])
+            
+            if count <= 0 or start_bid <= 0:
+                await message.answer("❌ Количество и ставка должны быть положительными!")
+                return
+            
+            if slot < 1 or slot > AUCTION_CONFIG["max_lots"]:
+                await message.answer(f"❌ Слот должен быть от 1 до {AUCTION_CONFIG['max_lots']}!")
+                return
+            
+            if car_name not in AUCTION_CARS:
+                found = None
+                for name in AUCTION_CARS.keys():
+                    if car_name.lower() in name.lower():
+                        found = name
+                        break
+                
+                if found:
+                    car_name = found
+                else:
+                    await message.answer(
+                        f"❌ Машина '{car_name}' не найдена!\n"
+                        f"Используйте /carlist для просмотра всех машин"
+                    )
+                    return
+            
+            # Вызываем функцию с слотом
+            success, msg = await set_admin_auction_lots_with_slot(car_name, start_bid, count, slot)
+            await message.answer(msg)
+            
+        except ValueError:
+            await message.answer("❌ Введите корректные числа для ставки, количества и слота!")
+        except Exception as e:
+            logger.error(f"Ошибка в setcarauction: {e}")
+            await message.answer(f"❌ Ошибка: {e}")
+
+    @dp.message(Command("refreshauction"))
+    async def refresh_auction(message: types.Message):
+        """Обновить аукцион для всех пользователей"""
+        if not await is_admin(message.from_user.id):
+            await message.answer("⛔ У вас нет прав!")
+            return
+        
+        try:
+            await message.answer("🔄 Обновляю аукцион...")
+            success, msg = await refresh_auction_for_all()
+            await message.answer(msg)
+        except Exception as e:
+            logger.error(f"Ошибка в refreshauction: {e}")
             await message.answer(f"❌ Ошибка: {e}")
 
     logger.info("✅ Все админ-обработчики зарегистрированы!")
