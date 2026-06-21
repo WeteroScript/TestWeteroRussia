@@ -3,7 +3,6 @@ from datetime import datetime
 
 from aiogram import types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import BUSINESS_CONFIG, bot, logger, MINE_RESOURCES
 from database.file_manager import (
@@ -112,6 +111,7 @@ def register_business_handlers(dp):
                             callback_data=f"toggle_auto_{key}"
                         )])
             
+            # Проверяем, есть ли готовые бизнесы для сбора
             has_ready = False
             for key, config in BUSINESS_CONFIG.items():
                 biz = user.get("business", {}).get(key, {})
@@ -173,7 +173,7 @@ def register_business_handlers(dp):
             config = BUSINESS_CONFIG[owned_business]
             sell_price = int(config["price"] * 0.5)
             
-            # Продаём бизнес сразу
+            # Автоматически продаём бизнес
             user["business"][owned_business]["owned"] = False
             user["business"][owned_business]["last_collect"] = None
             user["business"][owned_business]["auto_collect"] = False
@@ -204,9 +204,10 @@ def register_business_handlers(dp):
 
     @dp.callback_query(F.data.startswith("buy_business_"))
     async def buy_business(callback: types.CallbackQuery, state: FSMContext):
-        await state.clear()
         if not await check_access(callback):
             return
+        
+        await state.clear()
         
         try:
             business_key = callback.data.replace("buy_business_", "")
@@ -303,6 +304,7 @@ def register_business_handlers(dp):
             status_text = "включен" if new_status else "выключен"
             await callback.answer(f"✅ Авто-сбор для {config['name']} {status_text}!", show_alert=True)
             
+            # Обновляем меню бизнеса
             await business_menu(callback, None)
         except Exception as e:
             logger.error(f"Ошибка в toggle_auto_collect: {e}")
