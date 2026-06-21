@@ -7,7 +7,9 @@ from services.tasks import promo_auto_loop, check_business_loop, promo_running, 
 from services.auction import auction_update_loop, update_auction_lots, auction_running
 from handlers.admin import register_admin_handlers
 from handlers.business import register_business_handlers
-from handlers.user import register_user_handlers
+
+# Импортируем основной файл handlers.py (корневой)
+import handlers
 
 async def main():
     global promo_running, promo_task, business_running, business_check_task, auction_running
@@ -15,8 +17,10 @@ async def main():
     logger.info("🤖 Бот запущен!")
     logger.info(f"👑 Админы: {ADMIN_IDS}")
     
-    # Регистрируем все обработчики
-    register_user_handlers(dp)
+    # Регистрируем все обработчики из корневого handlers.py
+    handlers.register_handlers(dp)  # ← это из корневого handlers.py
+    
+    # Регистрируем админские и бизнес-обработчики из папки handlers/
     register_admin_handlers(dp)
     register_business_handlers(dp)
     
