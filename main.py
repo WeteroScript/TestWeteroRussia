@@ -6,8 +6,10 @@ from database.file_manager import load_settings
 from services.tasks import promo_auto_loop, check_business_loop, promo_running, promo_task, business_running, business_check_task
 from services.auction import auction_update_loop, update_auction_lots, auction_running
 
-# ✅ ПРАВИЛЬНЫЙ ИМПОРТ
+# ОСНОВНОЙ ХЕНДЛЕР
 from core.handlers import register_handlers
+# ТЕСТОВЫЙ ХЕНДЛЕР
+from test_handlers import register_test_handlers
 
 async def main():
     global promo_running, promo_task, business_running, business_check_task, auction_running
@@ -15,25 +17,24 @@ async def main():
     logger.info("🤖 Бот запущен!")
     logger.info(f"👑 Админы: {ADMIN_IDS}")
     
-    # ✅ ПРАВИЛЬНЫЙ ВЫЗОВ
+    # Регистрируем ОСНОВНЫЕ обработчики
     register_handlers(dp)
     
+    # Регистрируем ТЕСТОВЫЕ обработчики
+    register_test_handlers(dp)
+    
     try:
-        # Запускаем бизнес-цикл
         business_running = True
         business_check_task = asyncio.create_task(check_business_loop())
         logger.info("🏢 Цикл проверки бизнесов запущен!")
         
-        # Запускаем цикл аукциона
         auction_running = True
         auction_task = asyncio.create_task(auction_update_loop())
         logger.info("🚗 Цикл обновления аукциона запущен!")
         
-        # Инициализируем аукцион
         await update_auction_lots()
         logger.info("🚗 Аукцион инициализирован!")
         
-        # Запускаем промокоды если включены
         settings = await load_settings()
         if settings.get("promo_auto", False):
             promo_running = True
