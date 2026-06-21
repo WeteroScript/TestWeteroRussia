@@ -173,6 +173,7 @@ def register_business_handlers(dp):
             config = BUSINESS_CONFIG[owned_business]
             sell_price = int(config["price"] * 0.5)
             
+            # Сразу продаём бизнес без дополнительных вопросов
             user["business"][owned_business]["owned"] = False
             user["business"][owned_business]["last_collect"] = None
             user["business"][owned_business]["auto_collect"] = False
@@ -196,11 +197,10 @@ def register_business_handlers(dp):
                     [InlineKeyboardButton(text="🏢 В бизнес", callback_data="business")]
                 ])
             )
+            await callback.answer()
         except Exception as e:
             logger.error(f"Ошибка в sell_business: {e}")
             await callback.answer("⚠️ Ошибка!", show_alert=True)
-        
-        await callback.answer()
 
     @dp.callback_query(F.data.startswith("buy_business_"))
     async def buy_business(callback: types.CallbackQuery, state: FSMContext):
