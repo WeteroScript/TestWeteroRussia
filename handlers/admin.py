@@ -22,9 +22,6 @@ from utils.helpers import is_admin
 from services.currency import currency_rates
 from services.tasks import promo_running, promo_task, promo_auto_loop
 from services.auction import set_admin_auction_lots, refresh_auction_for_all, update_auction_lots
-import asyncio
-import random
-import string
 
 def register_admin_handlers(dp):
     
@@ -92,7 +89,7 @@ def register_admin_handlers(dp):
                 data = AUCTION_CARS[name]
                 stars = "⭐" * data['stars'] + "☆" * (5 - data['stars'])
                 text += f"**{i}. {name}**\n"
-                text += f"   ID: `{name}`\n"
+                text += f"   🆔 ID: `car_{i}`\n"
                 text += f"   {stars} ({data['rarity']})\n"
                 text += f"   💰 {data['base_price']:,.0f}₽\n\n"
             
@@ -399,7 +396,7 @@ def register_admin_handlers(dp):
         
         parts = message.text.split(maxsplit=3)
         if len(parts) < 4:
-            await message.answer("❌ Использование: /givecar @username кол-во id_машины\n\nПример: /givecar @user 1 car_1")
+            await message.answer("❌ Использование: /givecar @username кол-во id_машины\n\nПример: /givecar @user 1 car_1\nДля просмотра всех ID используйте /carlist")
             return
         
         try:
@@ -412,18 +409,20 @@ def register_admin_handlers(dp):
                 return
             
             car_name = None
+            car_list = list(AUCTION_CARS.keys())
             
+            # Поддержка car_1, car_2 и т.д.
             if car_id.startswith("car_"):
                 try:
                     index = int(car_id.replace("car_", "")) - 1
-                    car_list = list(AUCTION_CARS.keys())
                     if 0 <= index < len(car_list):
                         car_name = car_list[index]
                 except ValueError:
                     pass
             
+            # Если не нашли по car_N, ищем по названию
             if not car_name:
-                for name in AUCTION_CARS.keys():
+                for name in car_list:
                     if car_id in name.lower():
                         car_name = name
                         break
