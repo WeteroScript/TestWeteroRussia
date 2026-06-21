@@ -2,6 +2,7 @@ import asyncio
 import random
 import string
 from datetime import datetime
+
 from database.file_manager import (
     load_users, load_settings, save_settings, 
     load_business, save_business, 
@@ -70,45 +71,99 @@ async def promo_auto_loop():
             logger.error(f"❌ Ошибка в цикле промокодов: {e}")
         await asyncio.sleep(5400)
 
-# ========== БИЗНЕС ==========
+# ========== БИЗНЕС (АВТО-СБОР) ==========
 async def check_business_loop():
+    """Цикл автоматического сбора бизнесов"""
     global business_running, business_notified
     while business_running:
         try:
             business = await load_business()
             users = await load_users()
+            inventory = await load_inventory()
             
             for user_id, data in users.items():
                 user_business = data.get("business", {})
-                notified_biz = business_notified.get(user_id, [])
                 
                 for biz_key, biz_data in user_business.items():
-                    if biz_data.get("owned", False):
+                    if biz_data.get("owned", False) and biz_data.get("auto_collect", False):
                         last_collect = biz_data.get("last_collect")
                         if last_collect:
                             last_time = datetime.fromisoformat(last_collect)
                             elapsed = (datetime.now() - last_time).total_seconds()
                             cooldown = BUSINESS_CONFIG[biz_key]["cooldown"]
                             
-                            if elapsed >= cooldown and not biz_data.get("auto_collect", False):
-                                if biz_key not in notified_biz:
+                            if elapsed >= cooldown:
+                                # Автоматический сбор
+                                config = BUSINESS_CONFIG[biz_key]
+                                
+                                if config["profit_type"] == "money":
+                                    profit = random.randint(config["profit_min"], config["profit_max"])
+                                    data["money"] += profit
+                                    data["total_earned"] += profit
+                                    
+                                    if biz_key in business:
+                                        business[biz_key]["total_earned"] = business[biz_key].get("total_earned", 0) + profit
+                                    
+                                    # Уведомление
                                     try:
-                                        config = BUSINESS_CONFIG[biz_key]
                                         await bot.send_message(
                                             int(user_id),
-                                            f"🏢 {config['emoji']} {config['name']} готов к сбору дохода!\n"
-                                            f"Нажмите /start и зайдите в раздел Бизнес"
+                                            f"🏢 {config['emoji']} {config['name']}\n"
+                                            f"💰 Авто-сбор: +{profit:,.0f}₽"
                                         )
-                                        if user_id not in business_notified:
-                                            business_notified[user_id] = []
-                                        business_notified[user_id].append(biz_key)
-                                    except Exception as e:
-                                        logger.warning(f"Не удалось уведомить пользователя {user_id}: {e}")
-                            else:
-                                if biz_key in notified_biz:
-                                    business_notified[user_id].remove(biz_key)
-            
-            business_notified = {k: v for k, v in business_notified.items() if v}
+                                    except:
+                                        pass
+                                    
+                                elif config["profit_type"] == "resources":
+                                    if user_id not in inventory:
+                                        inventory[user_id] = []
+                                    
+                                    num_resources = random.randint(config["min_resources"], config["max_resources"])
+                                    resources_text = []
+                                    
+                                    for _ in range(num_resources):
+                                        resources = config["resources"]
+                                        total_chance = sum(r["chance"] for r in resources)
+                                        roll = random.random() * total_chance
+                                        cumulative = 0
+                                        selected_resource = resources[0]["name"]
+                                        
+                                        for res in resources:
+                                            cumulative += res["chance"]
+                                            if roll <= cumulative:
+                                                selected_resource = res["name"]
+                                                break
+                                        
+                                        inventory[user_id].append(selected_resource)
+                                        resources_text.append(selected_resource)
+                                    
+                                    if biz_key in business:
+                                        business[biz_key]["total_earned"] = business[biz_key].get("total_earned", 0) + num_resources
+                                    
+                                    # Уведомление
+                                    try:
+                                        resource_counts = {}
+                                        for res in resources_text:
+                                            resource_counts[res] = resource_counts.get(res, 0) + 1
+                                        
+                                        text = f"🏢 {config['emoji']} {config['name']}\n"
+                                        text += f"📦 Авто-сбор: +{num_resources} ресурсов\n"
+                                        for res_name, count in resource_counts.items():
+                                            text += f"   • {res_name}: {count} шт.\n"
+                                        
+                                        await bot.send_message(int(user_id), text)
+                                    except:
+                                        pass
+                                
+                                # Обновляем время последнего сбора
+                                biz_data["last_collect"] = datetime.now().isoformat()
+                                user_business[biz_key]["last_collect"] = datetime.now().isoformat()
+                                
+                                # Сохраняем изменения
+                                users[user_id] = data
+                                await save_users(users)
+                                await save_inventory(inventory)
+                                await save_business(business)
             
         except Exception as e:
             logger.error(f"❌ Ошибка в цикле проверки бизнеса: {e}")
