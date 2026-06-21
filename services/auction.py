@@ -2,15 +2,19 @@ import random
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
+
 from config import AUCTION_CARS, AUCTION_CONFIG, bot, logger
 from database.file_manager import load_users, save_users
 from database.file_manager import load_auction_data, save_auction_data, get_active_lots, update_lot_status
 from utils.helpers import is_function_disabled
 
-# Глобальные переменные
+# ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 auction_running = False
 auction_update_task: Optional[asyncio.Task] = None
 auction_timers: Dict[int, asyncio.Task] = {}
+
+# ✅ ДОБАВИТЬ ЭТУ СТРОКУ:
+user_auction_page: Dict[str, int] = {}
 
 # Редкости для отображения звёзд
 RARITY_STARS = {
@@ -215,7 +219,7 @@ async def place_bid(user_id: str, lot_index: int, amount: int) -> Tuple[bool, st
     # Перезапускаем таймер
     await start_auction_timer(real_index)
     
-    # ✅ Формируем красивое сообщение
+    # Формируем красивое сообщение
     car_name = all_lots[real_index]["car_name"]
     frozen_amount = frozen_bids.get(user_id, 0)
     
@@ -379,7 +383,7 @@ async def refresh_auction_for_all():
     return True, "✅ Аукцион обновлён для всех пользователей!"
 
 # ==========================================
-# ===== НОВАЯ ФУНКЦИЯ ДЛЯ УСТАНОВКИ В СЛОТ =====
+# ===== ФУНКЦИЯ ДЛЯ УСТАНОВКИ В СЛОТ =====
 # ==========================================
 
 async def set_admin_auction_lots_with_slot(car_name: str, start_bid: int, count: int, slot: int) -> Tuple[bool, str]:
