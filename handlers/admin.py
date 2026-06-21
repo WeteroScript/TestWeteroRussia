@@ -10,12 +10,14 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedIn
 
 from config import (
     ADMIN_IDS, bot, logger, BUSINESS_CONFIG, AUCTION_CARS,
-    USERS_FILE, PROMOCODES_FILE, SETTINGS_FILE, BUSINESS_FILE, AUCTION_FILE
+    USERS_FILE, PROMOCODES_FILE, SETTINGS_FILE, BUSINESS_FILE, AUCTION_FILE,
+    AUCTION_CONFIG
 )
 from database.file_manager import (
     load_users, save_users, load_business, save_business,
     load_settings, save_settings, load_promocodes, save_promocodes,
-    load_disabled_functions, save_disabled_functions
+    load_disabled_functions, save_disabled_functions,
+    load_auction_data, save_auction_data
 )
 from database.file_manager import set_auction_lots
 from utils.helpers import is_admin
@@ -65,7 +67,7 @@ def register_admin_handlers(dp):
             "`/returnfunction айди` - вернуть функцию\n\n"
             "**🚗 Аукцион:**\n"
             "`/carlist` - список всех машин с ID\n"
-            "`/setcarauction (id машины) (начальная ставка) (кол-во)` - добавить машину\n"
+            "`/setcarauction (id машины) (начальная ставка) (кол-во) (слот 1-15)` - добавить машину в слот\n"
             "`/refreshauction` - обновить аукцион"
         )
         await message.answer(help_text, parse_mode="Markdown")
@@ -106,17 +108,18 @@ def register_admin_handlers(dp):
 
     @dp.message(Command("setcarauction"))
     async def set_car_auction(message: types.Message):
-        """Добавить машину на аукцион"""
+        """Добавить машину на аукцион в конкретный слот"""
         if not await is_admin(message.from_user.id):
             await message.answer("⛔ У вас нет прав!")
             return
         
-        parts = message.text.split(maxsplit=3)
-        if len(parts) < 4:
+        parts = message.text.split(maxsplit=4)
+        if len(parts) < 5:
             await message.answer(
-                "❌ Использование: /setcarauction (id машины) (начальная ставка) (кол-во)\n\n"
-                "Пример: /setcarauction \"Монстр трак\" 1000000 1\n"
-                "Для просмотра всех машин используйте /carlist"
+                "❌ Использование: /setcarauction (id машины) (начальная ставка) (кол-во) (слот 1-15)\n\n"
+                "Пример: /setcarauction \"Монстр трак\" 1000000 1 3\n"
+                "Для просмотра всех машин используйте /carlist\n"
+                "Слоты: 1-15 (если слот занят, машина заменит существующую)"
             )
             return
         
@@ -124,9 +127,14 @@ def register_admin_handlers(dp):
             car_name = parts[1].strip()
             start_bid = int(parts[2])
             count = int(parts[3])
+            slot = int(parts[4])
             
             if count <= 0 or start_bid <= 0:
                 await message.answer("❌ Количество и ставка должны быть положительными!")
+                return
+            
+            if slot < 1 or slot > AUCTION_CONFIG["max_lots"]:
+                await message.answer(f"❌ Слот должен быть от 1 до {AUCTION_CONFIG['max_lots']}!")
                 return
             
             if car_name not in AUCTION_CARS:
@@ -145,11 +153,12 @@ def register_admin_handlers(dp):
                     )
                     return
             
-            success, msg = await set_admin_auction_lots(car_name, start_bid, count)
+            # Вызываем функцию с слотом
+            success, msg = await set_admin_auction_lots_with_slot(car_name, start_bid, count, slot)
             await message.answer(msg)
             
         except ValueError:
-            await message.answer("❌ Введите корректные числа для ставки и количества!")
+            await message.answer("❌ Введите корректные числа для ставки, количества и слота!")
         except Exception as e:
             logger.error(f"Ошибка в setcarauction: {e}")
             await message.answer(f"❌ Ошибка: {e}")
@@ -411,7 +420,6 @@ def register_admin_handlers(dp):
             car_name = None
             car_list = list(AUCTION_CARS.keys())
             
-            # Поддержка car_1, car_2 и т.д.
             if car_id.startswith("car_"):
                 try:
                     index = int(car_id.replace("car_", "")) - 1
@@ -420,7 +428,6 @@ def register_admin_handlers(dp):
                 except ValueError:
                     pass
             
-            # Если не нашли по car_N, ищем по названию
             if not car_name:
                 for name in car_list:
                     if car_id in name.lower():
@@ -483,13 +490,13 @@ def register_admin_handlers(dp):
         
         try:
             text = (
-                "📋 **СПИСОК ID ФУНКЦИЙ:**\n\n"
-                "**Работы:**\n"
+                "📋 СПИСОК ID ФУНКЦИЙ:\n\n"
+                "Работы:\n"
                 "• job_1 - Шахта\n"
                 "• job_2 - Ферма\n"
                 "• job_3 - Трейдинг\n"
                 "• job_4 - Водолаз\n\n"
-                "**Кнопки меню:**\n"
+                "Кнопки меню:\n"
                 "• menubutton_1 - Работы\n"
                 "• menubutton_2 - Донат\n"
                 "• menubutton_3 - Форбс\n"
@@ -501,17 +508,17 @@ def register_admin_handlers(dp):
                 "• menubutton_9 - Статистика\n"
                 "• menubutton_10 - Техподдержка\n"
                 "• menubutton_11 - Аукцион\n\n"
-                "**Казино:**\n"
+                "Казино:\n"
                 "• casinogame_1 - Кубик\n"
                 "• casinogame_2 - Слоты\n"
                 "• casinogame_3 - Мины\n\n"
-                "**Трейдинг:**\n"
+                "Трейдинг:\n"
                 "• trading_1 - BTC\n"
                 "• trading_2 - WETcoin\n"
                 "• trading_3 - NotCoin"
             )
             
-            await message.answer(text, parse_mode="Markdown")
+            await message.answer(text)
             
         except Exception as e:
             logger.error(f"Ошибка в idfunctionlist: {e}")
@@ -1042,3 +1049,59 @@ def register_admin_handlers(dp):
             await message.answer(f"❌ Ошибка: {e}")
 
     logger.info("✅ Все админ-обработчики зарегистрированы!")
+
+
+# ==========================================
+# ===== НОВАЯ ФУНКЦИЯ ДЛЯ УСТАНОВКИ В СЛОТ =====
+# ==========================================
+
+async def set_admin_auction_lots_with_slot(car_name: str, start_bid: int, count: int, slot: int):
+    """Устанавливает лоты от админа в конкретный слот"""
+    if car_name not in AUCTION_CARS:
+        return False, f"❌ Машина '{car_name}' не найдена!"
+    
+    car_data = AUCTION_CARS[car_name]
+    
+    # Создаем лоты
+    new_lots = []
+    for _ in range(count):
+        new_lots.append({
+            "car_name": car_name,
+            "car_data": car_data,
+            "start_bid": start_bid,
+            "current_bid": start_bid,
+            "current_bidder": None,
+            "stars": car_data.get("stars", 1),
+            "rarity": car_data.get("rarity", "Доступная"),
+            "last_bid_time": datetime.now().isoformat(),
+            "is_active": True,
+            "sold": False,
+            "added_by_admin": True
+        })
+    
+    # Загружаем текущие данные
+    data = await load_auction_data()
+    lots = data.get("lots", [])
+    
+    # Удаляем старые проданные лоты
+    lots = [lot for lot in lots if not lot.get("sold", False)]
+    
+    # Вставляем в конкретный слот (индекс = slot - 1)
+    slot_index = slot - 1
+    
+    # Если слот занят - заменяем, если нет - вставляем
+    if slot_index < len(lots):
+        # Заменяем существующий лот
+        lots[slot_index:slot_index + len(new_lots)] = new_lots
+    else:
+        # Добавляем в конец
+        lots.extend(new_lots)
+    
+    # Обрезаем до максимума
+    lots = lots[:AUCTION_CONFIG["max_lots"]]
+    
+    data["lots"] = lots
+    data["last_update"] = datetime.now().isoformat()
+    await save_auction_data(data)
+    
+    return True, f"✅ Добавлено {count} шт. {car_name} на аукцион в слот {slot}! Стартовая ставка: {start_bid:,}₽"
