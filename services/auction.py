@@ -23,12 +23,15 @@ RARITY_STARS = {
 
 # Шансы появления на аукционе
 RARITY_CHANCES = {
-    "Экзотическая": 0.005,  # 0.5%
-    "Легендарная": 0.05,    # 5%
-    "Очень редкая": 0.01,   # 1%
-    "Редкая": 0.30,         # 30%
-    "Доступная": 0.50       # 50%
+    "Экзотическая": 0.005,
+    "Легендарная": 0.05,
+    "Очень редкая": 0.01,
+    "Редкая": 0.30,
+    "Доступная": 0.50
 }
+
+# Замороженные ставки пользователей
+frozen_bids: Dict[str, int] = {}  # user_id -> сумма замороженных средств
 
 def get_stars_by_rarity(rarity: str) -> str:
     return RARITY_STARS.get(rarity, "★☆☆☆☆")
@@ -40,14 +43,12 @@ def generate_auction_lots(count: int = 15) -> List[Dict]:
     """Генерирует список лотов для аукциона"""
     lots = []
     
-    # Собираем все машины из AUCTION_CARS
     available_cars = []
     for car_name, car_data in AUCTION_CARS.items():
         rarity = car_data.get("rarity", "Доступная")
         chance = RARITY_CHANCES.get(rarity, 0.01)
         available_cars.append((car_name, car_data, chance))
     
-    # Выбираем машины с учётом шансов
     selected_cars = []
     attempts = 0
     while len(selected_cars) < count and attempts < 1000:
@@ -65,13 +66,11 @@ def generate_auction_lots(count: int = 15) -> List[Dict]:
                     selected_cars.append((car_name, car_data))
                 break
     
-    # Если машин меньше чем нужно, добираем случайными
     while len(selected_cars) < count and available_cars:
         car_name, car_data, _ = random.choice(available_cars)
         if (car_name, car_data) not in selected_cars:
             selected_cars.append((car_name, car_data))
     
-    # Создаём лоты
     for car_name, car_data in selected_cars[:count]:
         base_price = car_data.get("base_price", 1000000)
         start_bid = car_data.get("start_bid", int(base_price * random.uniform(0.3, 0.6)))
@@ -97,17 +96,13 @@ async def update_auction_lots(force: bool = False):
     """Обновляет список лотов аукциона"""
     global auction_timers
     
-    # Загружаем текущие данные
     data = await load_auction_data()
     lots = data.get("lots", [])
     
-    # Проверяем и удаляем проданные лоты (если не force)
     if not force:
         lots = [lot for lot in lots if not lot.get("sold", False)]
     
-    # Если лотов меньше 15 или force, добавляем новые
     if len(lots) < AUCTION_CONFIG["max_lots"] or force:
-        # Очищаем старые таймеры
         for timer in auction_timers.values():
             timer.cancel()
         auction_timers.clear()
@@ -117,22 +112,18 @@ async def update_auction_lots(force: bool = False):
         if force:
             lots = new_lots
         else:
-            # Добавляем новые лоты, сохраняя старые активные
             existing_names = [lot["car_name"] for lot in lots]
             for new_lot in new_lots:
                 if new_lot["car_name"] not in existing_names:
                     lots.append(new_lot)
                     existing_names.append(new_lot["car_name"])
             
-            # Обрезаем до максимального количества
             lots = lots[:AUCTION_CONFIG["max_lots"]]
     
-    # Сохраняем
     data["lots"] = lots
     data["last_update"] = datetime.now().isoformat()
     await save_auction_data(data)
     
-    # Запускаем таймеры для активных лотов
     for i, lot in enumerate(lots):
         if lot.get("is_active", True) and not lot.get("sold", False):
             await start_auction_timer(i)
@@ -151,7 +142,6 @@ async def auction_update_loop():
 
 async def place_bid(user_id: str, lot_index: int, amount: int) -> Tuple[bool, str]:
     """Размещает ставку на лот"""
-    # Проверяем, не отключена ли функция аукциона
     if await is_function_disabled("menubutton_11"):
         return False, "⛔ Аукцион временно остановлен администратором!"
     
@@ -168,19 +158,24 @@ async def place_bid(user_id: str, lot_index: int, amount: int) -> Tuple[bool, st
     if amount <= lot["current_bid"]:
         return False, f"❌ Ставка должна быть выше текущей ({lot['current_bid']:,}₽)!"
     
-    # Проверяем баланс пользователя
     users = await load_users()
     if user_id not in users:
         return False, "❌ Пользователь не найден!"
     
-    if users[user_id]["money"] < amount:
-        return False, f"❌ Недостаточно средств! У вас {users[user_id]['money']:,}₽"
+    # Проверяем баланс с учетом замороженных средств
+    frozen = frozen_bids.get(user_id, 0)
+    available = users[user_id]["money"] - frozen
+    
+    if available < amount:
+        return False, f"❌ Недостаточно доступных средств! У вас {available:,}₽ (заморожено: {frozen:,}₽)"
+    
+    # Замораживаем средства
+    frozen_bids[user_id] = frozen + amount
     
     # Обновляем ставку в данных
     data = await load_auction_data()
     all_lots = data.get("lots", [])
     
-    # Находим реальный индекс в полном списке
     real_index = None
     current_active = 0
     for i, l in enumerate(all_lots):
@@ -191,7 +186,15 @@ async def place_bid(user_id: str, lot_index: int, amount: int) -> Tuple[bool, st
             current_active += 1
     
     if real_index is None:
+        # Размораживаем средства при ошибке
+        frozen_bids[user_id] = max(0, frozen_bids.get(user_id, 0) - amount)
         return False, "❌ Ошибка: лот не найден!"
+    
+    # Если у лота уже есть текущий лидер - размораживаем его средства
+    old_bidder = all_lots[real_index].get("current_bidder")
+    old_bid = all_lots[real_index].get("current_bid", 0)
+    if old_bidder and old_bid > 0:
+        frozen_bids[old_bidder] = max(0, frozen_bids.get(old_bidder, 0) - old_bid)
     
     # Обновляем лот
     all_lots[real_index]["current_bid"] = amount
@@ -203,17 +206,15 @@ async def place_bid(user_id: str, lot_index: int, amount: int) -> Tuple[bool, st
     # Перезапускаем таймер
     await start_auction_timer(real_index)
     
-    return True, f"✅ Ставка {amount:,}₽ принята!"
+    return True, f"✅ Ставка {amount:,}₽ принята! Средства заморожены."
 
 async def start_auction_timer(lot_index: int):
     """Запускает таймер для лота"""
     global auction_timers
     
-    # Отменяем старый таймер
     if lot_index in auction_timers:
         auction_timers[lot_index].cancel()
     
-    # Создаём новый таймер
     auction_timers[lot_index] = asyncio.create_task(
         auction_timer(lot_index)
     )
@@ -223,7 +224,6 @@ async def auction_timer(lot_index: int):
     try:
         await asyncio.sleep(AUCTION_CONFIG["bid_timeout"])
         
-        # Загружаем актуальные данные
         data = await load_auction_data()
         lots = data.get("lots", [])
         
@@ -234,25 +234,28 @@ async def auction_timer(lot_index: int):
         if lot.get("sold", False) or not lot.get("is_active", True):
             return
         
-        # Проверяем, есть ли победитель
         user_id = lot.get("current_bidder")
         if user_id:
             car_name = lot["car_name"]
             final_price = lot["current_bid"]
             
-            # Добавляем машину в гараж пользователя
             users = await load_users()
             if user_id in users:
-                # Проверяем достаточно ли денег
-                if users[user_id]["money"] < final_price:
-                    # Недостаточно денег - лот уходит обратно на аукцион
+                # Проверяем достаточно ли денег (учитывая замороженные)
+                frozen = frozen_bids.get(user_id, 0)
+                if users[user_id]["money"] < final_price or frozen < final_price:
+                    # Недостаточно денег - размораживаем и возвращаем лот
+                    frozen_bids[user_id] = max(0, frozen_bids.get(user_id, 0) - final_price)
                     lot["current_bidder"] = None
                     lot["is_active"] = True
                     await save_auction_data(data)
                     await save_users(users)
                     return
                 
-                # Списываем деньги
+                # Снимаем замороженные средства
+                frozen_bids[user_id] = max(0, frozen_bids.get(user_id, 0) - final_price)
+                
+                # Списываем деньги (они уже заморожены, просто списываем)
                 users[user_id]["money"] -= final_price
                 
                 # Добавляем машину в инвентарь
@@ -268,12 +271,10 @@ async def auction_timer(lot_index: int):
                 
                 await save_users(users)
                 
-                # Отмечаем лот как проданный
                 lot["sold"] = True
                 lot["is_active"] = False
                 await save_auction_data(data)
                 
-                # Уведомляем пользователя
                 try:
                     await bot.send_message(
                         int(user_id),
@@ -288,7 +289,6 @@ async def auction_timer(lot_index: int):
                 
                 logger.info(f"✅ Машина {car_name} продана пользователю {user_id} за {final_price:,}₽")
         
-        # Удаляем таймер
         if lot_index in auction_timers:
             del auction_timers[lot_index]
             
@@ -308,7 +308,6 @@ async def set_admin_auction_lots(car_name: str, start_bid: int, count: int = 1) 
     
     car_data = AUCTION_CARS[car_name]
     
-    # Создаём лоты
     new_lots = []
     for _ in range(count):
         new_lots.append({
@@ -325,24 +324,18 @@ async def set_admin_auction_lots(car_name: str, start_bid: int, count: int = 1) 
             "added_by_admin": True
         })
     
-    # Загружаем текущие данные
     data = await load_auction_data()
     lots = data.get("lots", [])
     
-    # Удаляем старые проданные лоты
     lots = [lot for lot in lots if not lot.get("sold", False)]
-    
-    # Добавляем новые лоты
     lots.extend(new_lots)
-    
-    # Обрезаем до максимума
     lots = lots[:AUCTION_CONFIG["max_lots"]]
     
     data["lots"] = lots
     data["last_update"] = datetime.now().isoformat()
     await save_auction_data(data)
     
-    return True, f"✅ Добавлено {count} шт. {car_name} на аукцион!"
+    return True, f"✅ Добавлено {count} шт. {car_name} на аукцион! Стартовая ставка: {start_bid:,}₽"
 
 async def refresh_auction_for_all():
     """Обновляет аукцион для всех пользователей"""
