@@ -5,16 +5,15 @@ from typing import List, Dict, Optional, Tuple
 
 from config import AUCTION_CARS, AUCTION_CONFIG, bot, logger
 from database.file_manager import load_users, save_users
-from database.file_manager import load_auction_data, save_auction_data, get_active_lots, update_lot_status
+from database.file_manager import load_auction_data, save_auction_data, get_active_lots
 from utils.helpers import is_function_disabled
 
 # ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 auction_running = False
 auction_update_task: Optional[asyncio.Task] = None
 auction_timers: Dict[int, asyncio.Task] = {}
-
-# ✅ ДОБАВИТЬ ЭТУ СТРОКУ:
 user_auction_page: Dict[str, int] = {}
+frozen_bids: Dict[str, int] = {}  # user_id -> сумма замороженных средств
 
 # Редкости для отображения звёзд
 RARITY_STARS = {
@@ -33,9 +32,6 @@ RARITY_CHANCES = {
     "Редкая": 0.30,
     "Доступная": 0.50
 }
-
-# Замороженные ставки пользователей
-frozen_bids: Dict[str, int] = {}  # user_id -> сумма замороженных средств
 
 def get_stars_by_rarity(rarity: str) -> str:
     return RARITY_STARS.get(rarity, "★☆☆☆☆")
