@@ -195,6 +195,15 @@ async def place_bid(user_id: str, lot_index: int, amount: int) -> Tuple[bool, st
     old_bid = all_lots[real_index].get("current_bid", 0)
     if old_bidder and old_bid > 0:
         frozen_bids[old_bidder] = max(0, frozen_bids.get(old_bidder, 0) - old_bid)
+        # Уведомляем предыдущего лидера, что его перебили
+        try:
+            await bot.send_message(
+                int(old_bidder),
+                f"🔄 Вашу ставку на {all_lots[real_index]['car_name']} перебили!\n"
+                f"💸 Ваши {old_bid:,}₽ разморожены и доступны на балансе."
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось уведомить пользователя {old_bidder}: {e}")
     
     # Обновляем лот
     all_lots[real_index]["current_bid"] = amount
@@ -206,7 +215,21 @@ async def place_bid(user_id: str, lot_index: int, amount: int) -> Tuple[bool, st
     # Перезапускаем таймер
     await start_auction_timer(real_index)
     
-    return True, f"✅ Ставка {amount:,}₽ принята! Средства заморожены."
+    # ✅ Формируем красивое сообщение
+    car_name = all_lots[real_index]["car_name"]
+    frozen_amount = frozen_bids.get(user_id, 0)
+    
+    response_message = (
+        f"✅ Ваша ставка принята!\n\n"
+        f"🚗 Лот: {car_name}\n"
+        f"💰 Сумма ставки: {amount:,}₽\n"
+        f"🔒 Заморожено на балансе: {frozen_amount:,}₽\n\n"
+        f"⏳ Ставка заморожена на время действия лота.\n"
+        f"💰 Деньги спишутся, если вы выиграете лот.\n"
+        f"🔄 Деньги разморозятся, если вас перебьют."
+    )
+    
+    return True, response_message
 
 async def start_auction_timer(lot_index: int):
     """Запускает таймер для лота"""
@@ -220,7 +243,7 @@ async def start_auction_timer(lot_index: int):
     )
 
 async def auction_timer(lot_index: int):
-    """Таймер ожидания перебития ставки (15 минут)"""
+    """Таймер ожидания перебития ставки"""
     try:
         await asyncio.sleep(AUCTION_CONFIG["bid_timeout"])
         
@@ -250,6 +273,18 @@ async def auction_timer(lot_index: int):
                     lot["is_active"] = True
                     await save_auction_data(data)
                     await save_users(users)
+                    
+                    # Уведомляем пользователя
+                    try:
+                        await bot.send_message(
+                            int(user_id),
+                            f"❌ У вас недостаточно средств для покупки {car_name}!\n"
+                            f"💰 Сумма: {final_price:,}₽\n"
+                            f"💳 Ваш баланс: {users[user_id]['money']:,}₽\n"
+                            f"🔄 Лот возвращен на аукцион."
+                        )
+                    except Exception as e:
+                        logger.warning(f"Не удалось уведомить пользователя {user_id}: {e}")
                     return
                 
                 # Снимаем замороженные средства
@@ -282,7 +317,8 @@ async def auction_timer(lot_index: int):
                         f"🚗 {car_name}\n"
                         f"⭐ {get_stars_display(lot['stars'])} {lot['rarity']}\n"
                         f"💰 Цена: {final_price:,}₽\n\n"
-                        f"Машина добавлена в ваш гараж!"
+                        f"💳 Деньги списаны с баланса.\n"
+                        f"🚗 Машина добавлена в ваш гараж!"
                     )
                 except Exception as e:
                     logger.warning(f"Не удалось уведомить пользователя {user_id}: {e}")
@@ -341,3 +377,58 @@ async def refresh_auction_for_all():
     """Обновляет аукцион для всех пользователей"""
     await update_auction_lots(force=True)
     return True, "✅ Аукцион обновлён для всех пользователей!"
+
+# ==========================================
+# ===== НОВАЯ ФУНКЦИЯ ДЛЯ УСТАНОВКИ В СЛОТ =====
+# ==========================================
+
+async def set_admin_auction_lots_with_slot(car_name: str, start_bid: int, count: int, slot: int) -> Tuple[bool, str]:
+    """Устанавливает лоты от админа в конкретный слот"""
+    if car_name not in AUCTION_CARS:
+        return False, f"❌ Машина '{car_name}' не найдена!"
+    
+    car_data = AUCTION_CARS[car_name]
+    
+    # Создаем лоты
+    new_lots = []
+    for _ in range(count):
+        new_lots.append({
+            "car_name": car_name,
+            "car_data": car_data,
+            "start_bid": start_bid,
+            "current_bid": start_bid,
+            "current_bidder": None,
+            "stars": car_data.get("stars", 1),
+            "rarity": car_data.get("rarity", "Доступная"),
+            "last_bid_time": datetime.now().isoformat(),
+            "is_active": True,
+            "sold": False,
+            "added_by_admin": True
+        })
+    
+    # Загружаем текущие данные
+    data = await load_auction_data()
+    lots = data.get("lots", [])
+    
+    # Удаляем старые проданные лоты
+    lots = [lot for lot in lots if not lot.get("sold", False)]
+    
+    # Вставляем в конкретный слот (индекс = slot - 1)
+    slot_index = slot - 1
+    
+    # Если слот занят - заменяем, если нет - вставляем
+    if slot_index < len(lots):
+        # Заменяем существующий лот
+        lots[slot_index:slot_index + len(new_lots)] = new_lots
+    else:
+        # Добавляем в конец
+        lots.extend(new_lots)
+    
+    # Обрезаем до максимума
+    lots = lots[:AUCTION_CONFIG["max_lots"]]
+    
+    data["lots"] = lots
+    data["last_update"] = datetime.now().isoformat()
+    await save_auction_data(data)
+    
+    return True, f"✅ Добавлено {count} шт. {car_name} на аукцион в слот {slot}! Стартовая ставка: {start_bid:,}₽"
