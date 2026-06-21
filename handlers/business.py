@@ -3,6 +3,7 @@ from datetime import datetime
 
 from aiogram import types, F
 from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from config import BUSINESS_CONFIG, bot, logger, MINE_RESOURCES
 from database.file_manager import (
